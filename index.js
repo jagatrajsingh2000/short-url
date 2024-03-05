@@ -1,47 +1,47 @@
-const express = require('express');
-const URL = require('./models/url');
-const urlRoutes = require('./routes/url');
-const staticRoutes = require('./routes/staticRouter');
-const path = require('path');
-const {mongoDbConnection} = require('./connection');
-const app = express();
-const PORT = 8000
+const express = require("express");
+const path = require("path");
+const cookieParser = require("cookie-parser");
+const { connectToMongoDB } = require("./connect");
+const { restrictToLoggedinUserOnly, checkAuth } = require("./middlewares/auth");
+const URL = require("./models/url");
 
-// database collection
-mongoDbConnection("mongodb://localhost:27017/url").then(()=> console.log("mongodb connected"))
-.catch(err => console.log("error connecting", err))
+const urlRoute = require("./routes/url");
+const staticRoute = require("./routes/staticRouter");
+const userRoute = require("./routes/user");
+
+const app = express();
+const PORT = 8001;
+
+connectToMongoDB(process.env.MONGODB ?? "mongodb://localhost:27017/short-url").then(() =>
+  console.log("Mongodb connected")
+);
 
 app.set("view engine", "ejs");
-app.set('views', path.resolve("./view"));
+app.set("views", path.resolve("./views"));
 
 app.use(express.json());
-app.use(express.urlencoded({ extended:false }));
-app.use("/static",staticRoutes);
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
-app.get("/test", async (req, res) => {
-    const allUrls = await URL.find({});
-    return res.render('home',{
-        urls: allUrls,
-    })
-})
+app.use("/url", restrictToLoggedinUserOnly, urlRoute);
+app.use("/user", userRoute);
+app.use("/", checkAuth, staticRoute);
 
+app.get("/url/:shortId", async (req, res) => {
+  const shortId = req.params.shortId;
+  const entry = await URL.findOneAndUpdate(
+    {
+      shortId,
+    },
+    {
+      $push: {
+        visitHistory: {
+          timestamp: Date.now(),
+        },
+      },
+    }
+  );
+  res.redirect(entry.redirectURL);
+});
 
-app.use('/url',urlRoutes);
-app.get("/url/:shortId",async (req,res)=>{
-    console.log("helloo");
-    const shortId = req.params.shortId;
-    const result = await URL.findOneAndUpdate(
-        {shortId,},
-        {
-            $push: {
-                visitHistory: {
-                    timestam: Date.now(),
-                }
-            }
-        }
-    )
-    res.redirect(result.redirectURL);
-})
-
-
-app.listen(PORT, () => console.log(`listing to Port: ${PORT}`));
+app.listen(PORT, () => console.log(`Server Started at PORT:${PORT}`));
